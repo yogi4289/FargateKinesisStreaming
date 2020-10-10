@@ -1,0 +1,237 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Intelligent and Scalable streaming with Amazon Kinesis and AWS Fargate- AWS Community Day India 2020"
+
+Resources:
+
+  ProducerRepository01:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: kinesis-data-processor/producer
+  
+  ConsumerRepository01:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: kinesis-data-processor/consumer
+
+  KinesisAutoscalerRepository01:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: kinesis-data-processor/kinesisautoscaler
+
+  KinesisDataStream01:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: data-processing-stream
+      ShardCount: 1
+
+  deliverystream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    DependsOn:
+      - deliveryPolicy    
+    Properties:
+      DeliveryStreamName: 'data-processing-stream-firehose'
+      DeliveryStreamType: KinesisStreamAsSource
+      KinesisStreamSourceConfiguration: 
+        KinesisStreamARN: !GetAtt KinesisDataStream01.Arn
+        RoleARN: !GetAtt deliveryRole.Arn
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Join 
+          - ''
+          - - 'arn:aws:s3:::'
+            - !Ref s3bucket
+        BufferingHints:
+          IntervalInSeconds: '60'
+          SizeInMBs: '1'
+        CompressionFormat: UNCOMPRESSED        
+        RoleARN: !GetAtt deliveryRole.Arn
+        
+  s3bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead
+      BucketName: !Sub "community-day-data-processing-stream-firehose-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+
+  deliveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref 'AWS::AccountId'
+                
+  deliveryPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: firehose_delivery_policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:AbortMultipartUpload'
+              - 's3:GetBucketLocation'
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:ListBucketMultipartUploads'
+              - 's3:PutObject'              
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref s3bucket
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref s3bucket
+                  - '*'
+          - Effect: Allow
+            Action:
+              - 'kinesis:*'
+            Resource: '*'
+      Roles:
+        - !Ref deliveryRole
+
+  EventBridgeRole01:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+
+  EventBridgePolicy01:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: DataProcessor-ImageBuild-EventBridge-Policy
+      Roles: 
+      - !Ref EventBridgeRole01
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - 
+            Effect: Allow
+            Action: 
+            - codebuild:StartBuild
+            Resource: 
+            - !GetAtt CodeBuildProjectDockerImages01.Arn
+
+  CodeBuildTriggerRule01:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: Trigger Docker Image Build in CodeBuild
+      EventPattern: 
+        source: 
+        - aws.kinesis
+        detail-type:
+        - "AWS API Call via CloudTrail"
+        detail:
+          eventSource: 
+          - kinesis.amazonaws.com
+          eventName: 
+          - CreateStream
+      RoleArn: !GetAtt EventBridgeRole01.Arn
+      State: ENABLED
+      Targets: 
+        - Arn: !GetAtt CodeBuildProjectDockerImages01.Arn
+          Id: CodeBuildDockerImages
+          RoleArn: !GetAtt EventBridgeRole01.Arn
+        
+  CodeBuildRole01:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+  CodeBuildPolicy01:
+    Type: AWS::IAM::ManagedPolicy
+    Properties: 
+      ManagedPolicyName: DataProcessor-ImageBuild-Policy
+      Roles: 
+      - !Ref CodeBuildRole01
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Action:
+            - ecr:BatchCheckLayerAvailability
+            - ecr:CompleteLayerUpload
+            - ecr:InitiateLayerUpload
+            - ecr:PutImage
+            - ecr:UploadLayerPart
+            Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/kinesis-data-processor/*'
+          -
+            Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+              - logs:CreateLogGroup
+            Resource: '*'
+          - 
+            Effect: Allow
+            Action: 
+            - codebuild:CreateReportGroup
+            - codebuild:CreateReport
+            - codebuild:UpdateReport
+            - codebuild:BatchPutTestCases
+            Resource: !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/*'
+          -
+            Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+
+  CodeBuildProjectDockerImages01:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: DataProcessor-ImageBuild-All
+      Description: Build Docker images for Producer, Consumer & Kinesis Autoscaling Application
+      ServiceRole: !Ref CodeBuildRole01
+      Artifacts:
+        Type: no_artifacts
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:3.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: AWS_ACCOUNT_ID
+          Value: !Ref 'AWS::AccountId'
+        - Name: IMAGE_REPO_NAME_PRODUCER
+          Value: kinesis-data-processor/producer
+        - Name: IMAGE_REPO_NAME_CONSUMER
+          Value: kinesis-data-processor/consumer
+        - Name: IMAGE_REPO_NAME_AUTOSCALER
+          Value: kinesis-data-processor/kinesisautoscaler
+        - Name: IMAGE_TAG
+          Value: latest
+        - Name: AWS_DEFAULT_REGION
+          Value: !Ref 'AWS::Region'
+        - Name: SOURCE_REPO
+          Value: https://github.com/yogi4289/FargateKinesisStreaming.git
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: '{"version":0.2,"env":{"git-credential-helper":"yes"},"phases":{"pre_build":{"commands":["echo Fetching repo...","git clone $SOURCE_REPO .","echo Logging in to Amazon ECR...","$(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)"]},"build":{"commands":["echo Build started on `date`","echo Building the Docker image...","docker build -t $IMAGE_REPO_NAME_PRODUCER:$IMAGE_TAG ./producer","docker tag $IMAGE_REPO_NAME_PRODUCER:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME_PRODUCER:$IMAGE_TAG","docker build -t $IMAGE_REPO_NAME_CONSUMER:$IMAGE_TAG ./consumer","docker tag $IMAGE_REPO_NAME_CONSUMER:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME_CONSUMER:$IMAGE_TAG","docker build -t $IMAGE_REPO_NAME_AUTOSCALER:$IMAGE_TAG ./kinesisautoscaler","docker tag $IMAGE_REPO_NAME_AUTOSCALER:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME_AUTOSCALER:$IMAGE_TAG"]},"post_build":{"commands":["echo Build completed on `date`","echo Pushing the Docker image...","docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME_PRODUCER:$IMAGE_TAG","docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME_CONSUMER:$IMAGE_TAG","docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME_AUTOSCALER:$IMAGE_TAG"]}}}'
+      TimeoutInMinutes: 10
+  
+Outputs:
+  Endpoint:
+    Description: KinesisDataStream01
+    Value: !GetAtt KinesisDataStream01.Arn
+    Export:
+       Name: KinesisDataStream01 
