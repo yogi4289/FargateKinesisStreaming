@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: Intelligent and Scalable streaming with Amazon Kinesis and AWS Fargate- AWS Community Day India 2020"
 
 Resources:
-
+  # ECR
   ProducerRepository01:
     Type: AWS::ECR::Repository
     Properties: 
@@ -18,12 +18,14 @@ Resources:
     Properties: 
       RepositoryName: kinesis-data-processor/kinesisautoscaler
 
+  # Kinesis Data Stream
   KinesisDataStream01:
     Type: AWS::Kinesis::Stream
     Properties:
       Name: data-processing-stream
       ShardCount: 1
 
+  # Kinesis Firehose
   deliverystream:
     Type: AWS::KinesisFirehose::DeliveryStream
     DependsOn:
@@ -44,7 +46,8 @@ Resources:
           SizeInMBs: '1'
         CompressionFormat: UNCOMPRESSED        
         RoleARN: !GetAtt deliveryRole.Arn
-        
+
+  # S3 Bucket for firehose destination
   s3bucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -196,6 +199,7 @@ Resources:
               - logs:PutLogEvents
             Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
 
+  # Code Build to create container ecr images using code present in github repo
   CodeBuildProjectDockerImages01:
     Type: AWS::CodeBuild::Project
     Properties:
@@ -230,8 +234,28 @@ Resources:
       TimeoutInMinutes: 10
   
 Outputs:
-  Endpoint:
-    Description: KinesisDataStream01
+  KinesisStream:
+    Description: KinesisDataStream
     Value: !GetAtt KinesisDataStream01.Arn
     Export:
-       Name: KinesisDataStream01 
+       Name: KinesisDataStream
+  KinesisFirehose:
+    Description: KinesisFirehose
+    Value: !GetAtt deliverystream.Arn
+    Export:
+       Name: KinesisFirehose
+  ProducerRepository:
+    Description: ProducerRepository
+    Value: !GetAtt ProducerRepository01.Arn
+    Export:
+       Name: ProducerRepository
+  ConsumerRepository:
+    Description: ConsumerRepository
+    Value: !GetAtt ConsumerRepository01.Arn
+    Export:
+       Name: ConsumerRepository
+  CodeBuildProjectDockerImages:
+    Description: CodeBuildProjectDockerImages
+    Value: !GetAtt CodeBuildProjectDockerImages01.Arn
+    Export:
+       Name: CodeBuildProjectDockerImages
