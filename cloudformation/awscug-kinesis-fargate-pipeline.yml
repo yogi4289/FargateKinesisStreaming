@@ -167,6 +167,7 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable02
       SubnetId: !Ref PrivateSubnet02
 
+  # ECS Cluster
   ECSCluster01:
     Type: AWS::ECS::Cluster
     Properties:
@@ -201,6 +202,7 @@ Resources:
         SourceSecurityGroupId: !Ref ALBSecurityGroup01
     DependsOn: ALBSecurityGroup01
 
+  # ECS Producer Task Definition
   ECSTaskProducerDefinition01:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -242,6 +244,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: 'sts:AssumeRole'
 
+  # ECS Producer Service habing ALB
   ECSServiceProducer01:
     Type: AWS::ECS::Service
     Properties:
@@ -295,7 +298,7 @@ Resources:
               - kinesis:ListShards
               - kinesis:PutRecords
               - kinesis:PutRecord
-            Resource: !ImportValue KinesisDataStream01
+            Resource: !ImportValue KinesisDataStream
           - 
             Effect: "Allow"
             Action:
@@ -303,6 +306,7 @@ Resources:
             Resource: "*"   
     DependsOn: ECSTaskProducerRole01
 
+  # AUto Scaling Producer Containers
   ECSAutoScalingTargetProducer01:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
@@ -337,6 +341,7 @@ Resources:
       GroupDescription: Security Group for Consumer Application Containers
       VpcId: !Ref VPC01
 
+  # ECS Consumer Task Definition
   ECSTaskConsumerDefinition01:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -380,6 +385,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: 'sts:AssumeRole'
 
+  # ECS Consumer Service
   ECSServiceConsumer01:
     Type: AWS::ECS::Service
     Properties:
@@ -459,6 +465,7 @@ Resources:
 
     DependsOn: ECSTaskConsumerRole01
 
+  # Auto Scaling for Consumer
   ECSAutoScalingTargetConsumer01:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
@@ -493,6 +500,7 @@ Resources:
         CidrIp: !Ref InboundCIDRRange
       VpcId: !Ref VPC01
 
+  # ALB
   ElasticLoadBalancer01:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties: 
@@ -528,7 +536,8 @@ Resources:
       LoadBalancerArn: !Ref ElasticLoadBalancer01
       Port: 80
       Protocol: HTTP
-  
+
+  #CloudWatchDashboard01
   CloudWatchDashboard01:
     Type: AWS::CloudWatch::Dashboard
     Properties: 
