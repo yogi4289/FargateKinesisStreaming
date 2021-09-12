@@ -326,8 +326,8 @@ Resources:
       TargetTrackingScalingPolicyConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
-        ScaleInCooldown: 60
-        ScaleOutCooldown: 60
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
         TargetValue: !Ref ContainerScalingTarget
 
   ECSTaskLogGroup02:
