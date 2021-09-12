@@ -251,7 +251,7 @@ if __name__ == '__main__':
             'app': ['dataprocessor.properties'],
         },
         install_requires=PYTHON_REQUIREMENTS,
-        setup_requires=["pytest-runner"],
+#         setup_requires=["pytest-runner"],
         tests_require=["pytest", "mock"],
         cmdclass=commands,
         url="https://github.com/awslabs/amazon-kinesis-client-python",
